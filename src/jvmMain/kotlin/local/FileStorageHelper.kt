@@ -42,7 +42,7 @@ class FileStorageHelper {
     }
 
     fun <E> save(key: String, value: E) {
-        var kryoOutput: Output?
+        val kryoOutput: Output?
         try {
             val kiteTable = KiteTable(value)
             val fileStream = FileOutputStream(File(getPath(key)))
@@ -64,6 +64,7 @@ class FileStorageHelper {
         return kiteTable.mContent
     }
 
+    @Suppress("unused")
     fun delete(key: String): Boolean {
         val keyFile = File(getPath(key))
         return if (keyFile.exists()) {

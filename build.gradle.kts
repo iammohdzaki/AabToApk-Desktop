@@ -3,6 +3,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 plugins {
     kotlin("multiplatform")
     id("org.jetbrains.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 group = "com.AabToApk"
@@ -44,13 +45,13 @@ compose.desktop {
             packageName = "AabToApk"
             packageVersion = "1.0.4"
             val iconsRoot = project.file("desktop-icons")
-            macOS{
+            macOS {
                 iconFile.set(iconsRoot.resolve("launcher.icns"))
             }
-            windows{
+            windows {
                 iconFile.set(iconsRoot.resolve("launcher.ico"))
             }
-            linux{
+            linux {
                 iconFile.set(iconsRoot.resolve("launcher.png"))
             }
         }

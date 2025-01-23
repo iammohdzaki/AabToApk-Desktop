@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.CircularProgressIndicator
@@ -17,12 +19,9 @@ import androidx.compose.material.Icon
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.material.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,11 +38,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.AwtWindow
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import command.CommandBuilder
 import command.CommandExecutor
+import data.SaveBean
 import local.FileStorageHelper
 import ui.Styles
 import ui.components.ButtonWithToolTip
@@ -51,13 +50,7 @@ import ui.components.CheckboxWithText
 import ui.components.ChooseFileTextField
 import ui.components.CustomTextField
 import ui.components.LoadingDialog
-import utils.Constant
-import utils.DBConstants
-import utils.FileDialogType
-import utils.FileHelper
-import utils.Log
-import utils.SigningMode
-import utils.Strings
+import utils.*
 import java.awt.Desktop
 import java.awt.FileDialog
 import java.awt.Frame
@@ -65,108 +58,86 @@ import java.net.URI
 
 @Composable
 @Preview
-fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: String?) {
+fun App(
+    getConfig: () -> SaveBean,
+    saveConfig: (SaveBean) -> Unit
+) {
     val density = LocalDensity.current // to calculate the intrinsic size of vector images (SVG, XML)
+
+    // 协程
     val coroutineScope = rememberCoroutineScope()
+
+    // 日志
     var logs by remember { mutableStateOf("") }
-    var bundletoolPath by remember { mutableStateOf("") }
-    var aabFilePath by remember { mutableStateOf(Pair<String, String>("", "")) }
-    var isLoading by remember { mutableStateOf(false) }
-    var isOpen by remember { mutableStateOf(false) }
-    var isExecute by remember { mutableStateOf(false) }
-    var fileDialogType by remember { mutableStateOf(0) }
-    var saveJarPath by remember { mutableStateOf(false) }
-    var isOverwrite by remember { mutableStateOf(false) }
-    var isAapt2PathEnabled by remember { mutableStateOf(false) }
-    var aapt2Path by remember { mutableStateOf("") }
-    var isUniversalMode by remember { mutableStateOf(true) }
-    var signingMode by remember { mutableStateOf(SigningMode.DEBUG) }
-    var keyStorePath by remember { mutableStateOf("") }
-    var keyStorePassword by remember { mutableStateOf("") }
-    var keyAlias by remember { mutableStateOf("") }
-    var keyPassword by remember { mutableStateOf("") }
-    var isAutoUnzip by remember { mutableStateOf(true) }
-    var savedJarPath by remember { mutableStateOf(savedPath) }
-    var isAdbSetupDone by remember { mutableStateOf(false) }
-    var adbPath by remember { mutableStateOf("") }
-    var showLoadingDialog by remember { mutableStateOf(Pair("", false)) }
+
+    // UI状态
+    var processState by remember { mutableStateOf(ProcessStep.NONE) }
     var isDeviceIdEnabled by remember { mutableStateOf(false) }
     var deviceSerialId by remember { mutableStateOf("") }
 
-    // TODO: (Fixed this issue need to test more!) - Can't update file path once saved, For now Delete path.kb file inside storage directory.
-    savedJarPath?.let {
-        bundletoolPath = it
-        saveJarPath = true
-    }
+    // 弹窗类型
+    var fileDialogType by remember { mutableStateOf(0) }
 
-    // Check if ADB Setup is Done or Not
-    adbSavedPath?.let {
-        adbPath = it
-        isAdbSetupDone = true
-    }
+    // 文件存储
+    val configSaver = remember { Saver<SaveBean, SaveBean>({ value -> value.apply(saveConfig) }, { _ -> getConfig() }) }
+    var conf by rememberSaveable(stateSaver = configSaver) { mutableStateOf(getConfig()) }
 
-    if (isOpen && !isLoading) {
+    if (processState == ProcessStep.OPEN_DIALOG) {
         FileDialog { fileName, directory ->
-            isOpen = false
             if (fileName.isNullOrEmpty() || directory.isNullOrEmpty()) {
+                processState = ProcessStep.NONE
                 return@FileDialog
             }
             when (fileDialogType) {
-                FileDialogType.BUNDLETOOL -> bundletoolPath = "$directory$fileName"
-                FileDialogType.AAPT2 -> aapt2Path = "$directory$fileName"
-                FileDialogType.KEY_STORE_PATH -> keyStorePath = "$directory$fileName"
+                FileDialogType.BUNDLE_TOOL -> conf = conf.copy(bundleToolPath = "$directory$fileName")
+                FileDialogType.AAPT2 -> conf = conf.copy(aapt2Path = "$directory$fileName")
+                FileDialogType.KEY_STORE_PATH -> conf = conf.copy(keyStorePath = "$directory$fileName")
                 FileDialogType.ADB_PATH -> {
-                    adbPath = "$directory$fileName"
+                    conf = conf.copy(adbPath = "$directory$fileName")
                     // Show Loading Here
-                    showLoadingDialog = Pair(Strings.VERIFYING_ADB_PATH, true)
+                    processState = ProcessStep.CHECK
                     CommandExecutor().executeCommand(
                         CommandBuilder()
-                            .verifyAdbPath(true, adbPath)
+                            .verifyAdbPath(true, conf.adbPath)
                             .getAdbVerifyCommand(), coroutineScope,
                         onSuccess = {
                             logs += it
-                            isAdbSetupDone = true
-                            Log.i("Saving Path in DB $adbPath")
-                            fileStorageHelper.save(DBConstants.ADB_PATH, adbPath)
-                            // Hide Loading
+                            Log.i("Saving Path in DB ${conf.adbPath}")
                             Thread.sleep(1000L)
-                            showLoadingDialog = Pair(Strings.VERIFYING_ADB_PATH, false)
+                            // 降级
+                            processState = ProcessStep.NONE
                         },
                         onFailure = {
                             logs += it
-                            isAdbSetupDone = false
-                            // Hide Loading
-                            showLoadingDialog = Pair(Strings.VERIFYING_ADB_PATH, false)
+                            conf = conf.copy(adbPath = "")
+                            processState = ProcessStep.NONE
                         }
                     )
                 }
 
-                else -> {
-                    aabFilePath = Pair(directory, fileName)
-                }
+                FileDialogType.AAB -> conf = conf.copy(aabPath = "$directory$fileName")
             }
+            processState = ProcessStep.NONE
         }
     }
 
-    if (showLoadingDialog.second) {
-        LoadingDialog(showLoadingDialog.first)
+    if (processState == ProcessStep.CHECK) {
+        LoadingDialog(Strings.VERIFYING_ADB_PATH)
     }
 
-    if (isExecute) {
-        isExecute = false
+    if (processState == ProcessStep.EXECUTING) {
         // Get Command to Execute
         val (cmd, isValid) = CommandBuilder()
-            .bundletoolPath(bundletoolPath)
-            .aabFilePath(aabFilePath)
-            .isOverwrite(isOverwrite)
-            .isUniversalMode(isUniversalMode)
-            .isAapt2PathEnabled(isAapt2PathEnabled)
-            .aapt2Path(aapt2Path)
-            .signingMode(signingMode)
-            .keyStorePath(keyStorePath)
-            .keyStorePassword(keyStorePassword)
-            .keyAlias(keyAlias)
-            .keyPassword(keyPassword)
+            .bundleToolPath(conf.bundleToolPath)
+            .aabFilePath(conf.aabPath)
+            .isOverwrite(conf.isOverwrite)
+            .isUniversalMode(conf.isUniversalMode)
+            .aapt2Path(conf.aapt2Path)
+            .signingMode(conf.signingMode)
+            .keyStorePath(conf.keyStorePath)
+            .keyStorePassword(conf.keyStorePassword)
+            .keyAlias(conf.keyAlias)
+            .keyPassword(conf.keyPassword)
             .validateAndGetCommand()
         if (isValid) {
             Log.i("Command $cmd")
@@ -179,45 +150,34 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
                         logs += "$it\n"
                         // Do further file operation after new apks is generated
                         // From Auto Zip you can control further file operations.
-                        if (isAutoUnzip) {
-                            FileHelper.performFileOperations(aabFilePath.first, aabFilePath.second) { status, message ->
-                                isLoading = false
+                        if (conf.isAutoUnzip) {
+                            FileHelper.performFileOperations(conf.aabPath) { status, message ->
+                                processState = ProcessStep.NONE
                                 Log.i("STATUS - $status\nMESSAGE - $message")
                                 logs += "\nFiles Operations Starting...\n$message\n"
                             }
                         } else {
-                            logs += "\nFile will be saved at ${aabFilePath.first.removeSuffix("\\")}.\n"
-                            isLoading = false
-                        }
-
-                        // Save Path in Storage
-                        // If We don't have any saved path in file storage and save jar path option is checked.Then,we can save new value in storage.
-                        if (savedJarPath == null && saveJarPath) {
-                            fileStorageHelper.save("path", bundletoolPath)
-                        }
-                        // If we have saved path in file storage, and it is not changed and save jar path is checked. Then, we can update the value in file storage.
-                        else if (savedJarPath != null && savedJarPath != bundletoolPath && saveJarPath) {
-                            fileStorageHelper.save("path", bundletoolPath)
-                        } else {
-                            if (fileStorageHelper.delete("path"))
-                                saveJarPath = false
+                            logs += "\nFile will be saved at ${conf.aabPath.parent().removeSuffix("\\")}.\n"
+                            processState = ProcessStep.NONE
                         }
                     },
                     onFailure = {
-                        isLoading = false
+                        processState = ProcessStep.NONE
                         logs += "Failed -> ${it.printStackTrace()}"
                     }
                 )
         } else {
             Log.i("Error $cmd")
             logs += "\nError -> $cmd"
-            isLoading = false
+            processState = ProcessStep.NONE
         }
     }
 
+    val rememberScrollableState = rememberScrollState()
+
     MaterialTheme {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollableState, true),
             horizontalAlignment = Alignment.Start
         ) {
             Spacer(modifier = Modifier.padding(12.dp))
@@ -231,13 +191,13 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp)
                 )
                 ButtonWithToolTip(
-                    if (isAdbSetupDone) Strings.ABD_SETUP_DONE else Strings.SETUP_ADB,
+                    if (conf.adbPath.isNotBlank()) Strings.ABD_SETUP_DONE else Strings.SETUP_ADB,
                     onClick = {
                         fileDialogType = FileDialogType.ADB_PATH
-                        isOpen = true
+                        processState = ProcessStep.OPEN_DIALOG
                     },
                     Strings.SETUP_ADB_INFO,
-                    icon = if (isAdbSetupDone) "done" else "info"
+                    icon = if (conf.adbPath.isNotBlank()) "done" else "info"
                 )
             }
             Spacer(modifier = Modifier.padding(8.dp))
@@ -248,21 +208,21 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
             ) {
                 // Bundle tool select flow
                 ChooseFileTextField(
-                    bundletoolPath,
+                    conf.bundleToolPath,
                     Strings.SELECT_BUNDLETOOL_JAR,
                     onSelect = {
-                        fileDialogType = FileDialogType.BUNDLETOOL
-                        isOpen = true
+                        fileDialogType = FileDialogType.BUNDLE_TOOL
+                        processState = ProcessStep.OPEN_DIALOG
                     }
                 )
-                CheckboxWithText(
-                    Strings.SAVE_JAR_PATH,
-                    saveJarPath,
-                    onCheckedChange = {
-                        saveJarPath = it
-                    },
-                    Strings.SAVE_JAR_PATH_INFO
-                )
+//                CheckboxWithText(
+//                    Strings.SAVE_JAR_PATH,
+//                    saveJarPath,
+//                    onCheckedChange = {
+//                        saveJarPath = it
+//                    },
+//                    Strings.SAVE_JAR_PATH_INFO
+//                )
             }
             val downloadInfo = buildAnnotatedString {
                 withStyle(style = SpanStyle(color = Color.Blue, textDecoration = TextDecoration.Underline)) {
@@ -293,11 +253,11 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
             )
             Spacer(modifier = Modifier.padding(8.dp))
             ChooseFileTextField(
-                "${aabFilePath.first}${aabFilePath.second}",
+                conf.aabPath,
                 Strings.SELECT_AAB_FILE,
                 onSelect = {
                     fileDialogType = FileDialogType.AAB
-                    isOpen = true
+                    processState = ProcessStep.OPEN_DIALOG
                 }
             )
             Spacer(modifier = Modifier.padding(8.dp))
@@ -311,39 +271,35 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
             ) {
                 CheckboxWithText(
                     Strings.OVERWRITE,
-                    isOverwrite,
-                    onCheckedChange = {
-                        isOverwrite = it
-                    },
+                    conf.isOverwrite,
+                    onCheckedChange = { conf = conf.copy(isOverwrite = it) },
                     Strings.OVERWRITE_INFO
                 )
                 CheckboxWithText(
                     Strings.MODE_UNIVERSAL,
-                    isUniversalMode,
-                    onCheckedChange = {
-                        isUniversalMode = it
-                    },
+                    conf.isUniversalMode,
+                    onCheckedChange = { conf = conf.copy(isUniversalMode = it) },
                     Strings.MODE_UNIVERSAL_INFO
                 )
-                CheckboxWithText(
-                    Strings.AAPT2_PATH,
-                    isAapt2PathEnabled,
-                    onCheckedChange = {
-                        isAapt2PathEnabled = it
-                    },
-                    Strings.AAPT2_PATH_INFO
-                )
+//                CheckboxWithText(
+//                    Strings.AAPT2_PATH,
+//                    isAapt2PathEnabled,
+//                    onCheckedChange = {
+//                        isAapt2PathEnabled = it
+//                    },
+//                    Strings.AAPT2_PATH_INFO
+//                )
             }
-            if (isAapt2PathEnabled) {
-                ChooseFileTextField(
-                    aapt2Path,
-                    Strings.SELECT_AAPT2_FILE,
-                    onSelect = {
-                        fileDialogType = FileDialogType.AAPT2
-                        isOpen = true
-                    }
-                )
-            }
+//            if (isAapt2PathEnabled) {
+            ChooseFileTextField(
+                conf.aapt2Path,
+                Strings.SELECT_AAPT2_FILE,
+                onSelect = {
+                    fileDialogType = FileDialogType.AAPT2
+                    processState = ProcessStep.OPEN_DIALOG
+                }
+            )
+//            }
             Text(
                 text = Strings.SIGNING_MODE,
                 style = Styles.TextStyleBold(16.sp),
@@ -354,38 +310,40 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
             ) {
                 CheckboxWithText(
                     Strings.DEBUG,
-                    signingMode == SigningMode.DEBUG,
+                    conf.signingMode == SigningMode.DEBUG,
                     onCheckedChange = {
-                        signingMode = if (it) SigningMode.DEBUG
+                        val signingMode = if (it) SigningMode.DEBUG
                         else SigningMode.RELEASE
+                        conf = conf.copy(signingMode = signingMode)
                     }
                 )
                 CheckboxWithText(
                     Strings.RELEASE,
-                    signingMode == SigningMode.RELEASE,
+                    conf.signingMode == SigningMode.RELEASE,
                     onCheckedChange = {
-                        signingMode = if (it) SigningMode.RELEASE
+                        val signingMode = if (it) SigningMode.RELEASE
                         else SigningMode.DEBUG
+                        conf = conf.copy(signingMode = signingMode)
                     }
                 )
             }
-            if (signingMode == SigningMode.RELEASE) {
+            if (conf.signingMode == SigningMode.RELEASE) {
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     ChooseFileTextField(
-                        keyStorePath,
+                        conf.keyStorePath,
                         Strings.KEYSTORE_PATH,
                         onSelect = {
                             fileDialogType = FileDialogType.KEY_STORE_PATH
-                            isOpen = true
+                            processState = ProcessStep.OPEN_DIALOG
                         }
                     )
                     CustomTextField(
-                        keyStorePassword,
+                        conf.keyStorePassword,
                         Strings.KEYSTORE_PASSWORD,
                         onValueChange = {
-                            keyStorePassword = it
+                            conf = conf.copy(keyStorePassword = it)
                         }
                     )
                 }
@@ -393,18 +351,18 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     CustomTextField(
-                        keyAlias,
+                        conf.keyAlias,
                         Strings.KEY_ALIAS,
                         forPassword = false,
                         onValueChange = {
-                            keyAlias = it
+                            conf = conf.copy(keyAlias = it)
                         }
                     )
                     CustomTextField(
-                        keyPassword,
+                        conf.keyPassword,
                         Strings.KEY_PASSWORD,
                         onValueChange = {
-                            keyPassword = it
+                            conf = conf.copy(keyPassword = it)
                         }
                     )
                 }
@@ -416,14 +374,14 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
             )
             CheckboxWithText(
                 Strings.AUTO_UNZIP,
-                isAutoUnzip,
+                conf.isAutoUnzip,
                 onCheckedChange = {
-                    isAutoUnzip = it
+                    conf = conf.copy(isAutoUnzip = it)
                 },
                 Strings.AUTO_UNZIP
             )
             Spacer(modifier = Modifier.padding(8.dp))
-            if (isAdbSetupDone) {
+            if (conf.adbPath.isNotBlank()) {
                 Text(
                     text = Strings.DEVICE_OPTIONS,
                     style = Styles.TextStyleBold(16.sp),
@@ -456,7 +414,7 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
                                 CommandExecutor()
                                     .executeCommand(
                                         CommandBuilder()
-                                            .getAdbFetchCommand(adbSavedPath!!),
+                                            .getAdbFetchCommand(conf.adbPath),
                                         coroutineScope,
                                         onSuccess = {
                                             logs += it
@@ -473,7 +431,7 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
                 }
                 Spacer(modifier = Modifier.padding(8.dp))
             }
-            if (isLoading) {
+            if (processState == ProcessStep.EXECUTING) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(size = 40.dp)
                         .padding(start = 16.dp, top = 0.dp, end = 0.dp, bottom = 0.dp),
@@ -481,12 +439,8 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
                 )
             } else {
                 Button(
-                    onClick = {
-                        isLoading = true
-                        isExecute = true
-                    },
-                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp)
-                        .wrapContentWidth()
+                    onClick = { processState = ProcessStep.EXECUTING },
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp).wrapContentWidth()
                 ) {
                     Text(
                         text = Strings.EXECUTE,
@@ -532,6 +486,11 @@ fun App(fileStorageHelper: FileStorageHelper, savedPath: String?, adbSavedPath: 
             )
         }
     }
+
+    LaunchedEffect(conf) {
+        saveConfig(conf)
+    }
+
 }
 
 @Composable
@@ -554,20 +513,17 @@ private fun FileDialog(
 
 fun main() = application {
     val fileStorageHelper = FileStorageHelper()
-    // Check if path for bundletool exists in local storage
-    val path = fileStorageHelper.read(DBConstants.BUNDLETOOL_PATH) as String?
-    val adbPath = fileStorageHelper.read(DBConstants.ADB_PATH) as String?
-    val icon = painterResource("launcher.png")
+    val getConfigFun = remember { { fileStorageHelper.read(DBConstants.SAVE_CONFIG) as? SaveBean ?: SaveBean() } }
+    val saveConfigFun = remember { { saveBean: SaveBean -> fileStorageHelper.save(DBConstants.SAVE_CONFIG, saveBean) } }
+
     Log.showLogs = true
+
     Window(
-        icon = icon,
+        icon = painterResource("launcher.png"),
         onCloseRequest = ::exitApplication,
-        state = rememberWindowState(
-            width = 1200.dp, height = 1000.dp,
-            position = WindowPosition(Alignment.Center)
-        ),
-        title = Strings.APP_NAME
+        state = rememberWindowState(),
+        title = Strings.APP_NAME,
     ) {
-        App(fileStorageHelper, path, adbPath)
+        App(getConfigFun, saveConfigFun)
     }
 }
