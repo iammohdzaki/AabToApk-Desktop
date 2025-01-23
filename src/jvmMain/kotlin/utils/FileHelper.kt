@@ -5,7 +5,9 @@ import java.io.IOException
 
 object FileHelper {
 
-    fun performFileOperations(directory: String, fileName: String, fileStatus: (Int, String) -> Unit) {
+    fun performFileOperations(aabPath: String, fileStatus: (Int, String) -> Unit) {
+        val directory = aabPath.parent()
+        val fileName = aabPath.fileName()
         val oldFile = File(directory, "${fileName.split(".")[0]}.apks")
         val newFile = File(directory, "${fileName.split(".")[0]}.zip")
         if (FileUtils.renameFile(oldFile, newFile)) {
@@ -29,3 +31,6 @@ object FileHelper {
         }
     }
 }
+
+fun String.parent(): String = File(this).parent
+fun String.fileName(): String = File(this).name

@@ -18,7 +18,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return error if aabFilePath is empty`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .validateAndGetCommand()
         assertEquals("aabFilePath", result.first)
         assertEquals(false, result.second)
@@ -27,7 +27,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return error if aapt2Path is empty but isAapt2PathEnabled is true`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .aabFilePath(Pair("/path", "gg.gg"))
             .isAapt2PathEnabled(true)
             .validateAndGetCommand()
@@ -38,7 +38,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return error if signingMode is RELEASE but keystore information is missing`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .aabFilePath(Pair("/path/to/", "file.aab"))
             .signingMode(SigningMode.RELEASE)
             .validateAndGetCommand()
@@ -49,7 +49,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return valid command for RELEASE signing mode with all required parameters`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .aabFilePath(Pair("/path/to/", "file.aab"))
             .signingMode(SigningMode.RELEASE)
             .keyStorePath("/path/to/keystore.jks")
@@ -75,7 +75,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return valid command for DEBUG signing mode without keystore information`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .aabFilePath(Pair("/path/to/", "file.aab"))
             .signingMode(SigningMode.DEBUG)
             .isUniversalMode(false)
@@ -107,7 +107,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return valid command for universal mode enabled`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .aabFilePath(Pair("/path/to/", "file.aab"))
             .isUniversalMode(true)
             .validateAndGetCommand()
@@ -129,7 +129,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return valid command with overwrite enabled`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .aabFilePath(Pair("/path/to/", "file.aab"))
             .isOverwrite(true)
             .isUniversalMode(false).validateAndGetCommand()
@@ -151,7 +151,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return error when device id enabled but serial id is empty`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .aabFilePath(Pair("/path/to/", "file.aab"))
             .isOverwrite(false)
             .isUniversalMode(false)
@@ -168,7 +168,7 @@ class CommandBuilderTest {
     @Test
     fun `validateAndGetCommand should return valid command with device id enabled`() {
         val result = CommandBuilder()
-            .bundletoolPath("bundletool.jar")
+            .bundleToolPath("bundletool.jar")
             .aabFilePath(Pair("/path/to/", "file.aab"))
             .isOverwrite(false)
             .isUniversalMode(false)
