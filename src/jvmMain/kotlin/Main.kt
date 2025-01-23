@@ -414,7 +414,7 @@ fun App(
                                 CommandExecutor()
                                     .executeCommand(
                                         CommandBuilder()
-                                            .getAdbFetchCommand(conf.aabPath),
+                                            .getAdbFetchCommand(conf.adbPath),
                                         coroutineScope,
                                         onSuccess = {
                                             logs += it

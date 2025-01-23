@@ -50,10 +50,10 @@ class CommandBuilder {
         if (bundleToolPath.isEmpty()) {
             return Pair("bundleToolPath", false)
         }
-        if (aabFilePath.isNotBlank()) {
+        if (aabFilePath.isBlank()) {
             return Pair("aabFilePath", false)
         }
-        if (aapt2Path.isNotBlank()) {
+        if (aapt2Path.isBlank()) {
             return Pair("aapt2Path", false)
         }
         if (signingMode == SigningMode.RELEASE && (keyStorePath.isEmpty() || keyStorePassword.isEmpty() || keyAlias.isEmpty() || keyPassword.isEmpty())) {
@@ -73,7 +73,7 @@ class CommandBuilder {
                 commandBuilder.append("--aapt2=\"$aapt2Path\" ")
             }
             commandBuilder.append(
-                "--bundle=\"${aabFilePath}\" --output=\"${aabFilePath.parent()}" +
+                "--bundle=\"${aabFilePath}\" --output=\"${aabFilePath.parent()}\\" +
                         "${aabFilePath.fileName().split(".")[0]}.apks\" "
             )
         } else {
@@ -82,7 +82,7 @@ class CommandBuilder {
                 commandBuilder.append("--aapt2=$aapt2Path ")
             }
             commandBuilder.append(
-                "--bundle=${aabFilePath} --output=${aabFilePath.parent()}${
+                "--bundle=${aabFilePath} --output=${aabFilePath.parent()}\\${
                     aabFilePath.fileName().split(".")[0]
                 }.apks "
             )
